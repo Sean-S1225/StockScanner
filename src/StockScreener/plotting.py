@@ -20,7 +20,14 @@ class IndicatorDefinition:
     panel: IndicatorPanel
     heigh_ratio: float = 1.0
 
-def GetTitleAndTicker(name: str, ticker: yf.Ticker | None, info: dict[str, str] | None):
+def GetTickerAndSymbol(name, ticker):
+    if ticker != None:
+        return ticker, ticker.ticker
+    
+    ticker = yf.Ticker(name)
+    return ticker, ticker.ticker
+
+def GetTitle(figTitle: str | None, ticker: yf.Ticker, info: dict[str, str] | None, symbol: str):
     """Generates the title of the plot. The title is chosen to be f"{displayName} (${symbol}) Stock History",
     but if display name is not available it will fall back to shortName, then longName. If longName is not
     available, it will fall back on just f"${symbol} Stock History"; symbol should always exist.
@@ -37,21 +44,19 @@ def GetTitleAndTicker(name: str, ticker: yf.Ticker | None, info: dict[str, str] 
         Returns the title of the plot and the ticker
     """
 
+    if figTitle != None:
+        return figTitle
+
     # Getting ticker.get_info() is a heavy API call, so if the user
-    # provides it, we don't want to get it again. If they don't
-    # provide it, we see if they provide the ticker. If they don't, then
+    # provides it, we don't want to get it again. If they don't, then
     # we get the info from scratch.
-    if info == None:
-        if ticker == None:
-            ticker = yf.Ticker(name)
-        
+    if info == None:        
         info = ticker.get_info()
 
     # The goal is for title to be f"{displayName} (${symbol}) Stock History",
     # but if display name is not available it will fall back to shortName, then longName. If longName is not
     # available, it will fall back on just f"${symbol} Stock History"; symbol should always exist.
     displayName = None
-    info = ticker.get_info()
     displayName = info.get("displayName")
     if displayName is None:
         displayName = info.get("shortName")
@@ -73,7 +78,7 @@ def GetTitleAndTicker(name: str, ticker: yf.Ticker | None, info: dict[str, str] 
     
     title = title + " Stock History"
 
-    return title, ticker
+    return title
 
 def _get_auto_tick_mode(data: pd.DataFrame) -> AxisTickMode:
     if len(data) < 2:
@@ -547,7 +552,7 @@ def _draw_indicators(stock_history: pd.DataFrame, data: pd.DataFrame, axes_by_pa
 
 def _PlotStockHistoryFromData(title: str, INDICATOR_DEFS: dict[PlotIndicator, IndicatorDefinition], stock_history: pd.DataFrame,
                      savefile: str | None, figAx: tuple[figure.Figure, Axes],
-                     plotConfig: PlotConfig | None):
+                     plotConfig: PlotConfig | None, useDefaultFidTitleFontSize: bool):
     """Assuming that the data has already been generated, now actually plot it
 
     Args:
@@ -570,17 +575,16 @@ def _PlotStockHistoryFromData(title: str, INDICATOR_DEFS: dict[PlotIndicator, In
     price_ax = axes_by_panel[IndicatorPanel.PRICE]
     price_ax.grid(visible=True, axis="y", zorder=-1, alpha=0.5)
 
-    fig.suptitle(title, fontsize=plotConfig.titleFontSize)
+    if useDefaultFidTitleFontSize:
+        fig.suptitle(title)
+    else:
+        fig.suptitle(title, fontsize=plotConfig.titleFontSize)
 
     data = stock_history[-plotConfig.candles_to_display:]
 
     _draw_candles(price_ax, data, plotConfig)
     _draw_indicators(stock_history, data, axes_by_panel, plotConfig, INDICATOR_DEFS)
-            
-    # for ax in axes_by_panel.values():
-    #     ax.xaxis_date()
-    #     ax.autoscale_view()
-
+    
     axes = list(axes_by_panel.values())
     for ax in axes[:-1]:
         ax.tick_params(labelbottom=False)
@@ -594,7 +598,8 @@ def _PlotStockHistoryFromData(title: str, INDICATOR_DEFS: dict[PlotIndicator, In
 
 def PlotStockHistory(name: str, stock_history: pd.DataFrame = None, info: dict[str, str] = None,
                      ticker: yf.Ticker = None, savefile=None, figAx: tuple[figure.Figure, Axes] = None,
-                     plotConfig: PlotConfig | None = None, stockHistoryConfig: StockHistoryConfig | None = None):
+                     plotConfig: PlotConfig | None = None, stockHistoryConfig: StockHistoryConfig | None = None,
+                     figTitle = None):
     """Plots the weekly history of a stock.
 
     Args:
@@ -634,8 +639,8 @@ def PlotStockHistory(name: str, stock_history: pd.DataFrame = None, info: dict[s
         ),
     }
 
-    title, ticker = GetTitleAndTicker(name, ticker, info)
-    symbol = ticker.ticker
+    ticker, symbol = GetTickerAndSymbol(name, ticker)
+    title = GetTitle(figTitle, ticker, info, symbol)
     stock_history = _resolve_stock_history(stock_history, stockHistoryConfig, ticker)
     stock_history = _normalize_stock_history(stock_history, symbol)
-    return _PlotStockHistoryFromData(title, INDICATOR_DEFS, stock_history, savefile, figAx, plotConfig)
+    return _PlotStockHistoryFromData(title, INDICATOR_DEFS, stock_history, savefile, figAx, plotConfig, figAx != None)

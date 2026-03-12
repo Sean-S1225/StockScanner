@@ -1,13 +1,11 @@
+README.md
 pyproject.toml
 src/StockScreener/__init__.py
 src/StockScreener/backtest.py
 src/StockScreener/config.py
-src/StockScreener/config_vmc.py
 src/StockScreener/data.py
 src/StockScreener/indicators.py
-src/StockScreener/indicators_vmc.py
 src/StockScreener/plotting.py
-src/StockScreener/plotting_vmc.py
 src/StockScreener/screening.py
 src/StockScreener.egg-info/PKG-INFO
 src/StockScreener.egg-info/SOURCES.txt
