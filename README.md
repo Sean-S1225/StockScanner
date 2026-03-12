@@ -4,6 +4,8 @@ A Python-based stock market screening and visualization tool designed for swing 
 
 Swing trading, unlike day trading, focuses on identifying stocks that may be near the end of a broader downswing, with the goal of entering positions before a potential rebound. This project began as a sandbox for exploring financial data and technical indicators, and is gradually evolving into a more flexible framework for market screening, chart analysis, and strategy development.
 
+![Weekly and Daily graph of Microsoft ($MSFT) stock price](./Example.png)
+
 ## Current Features
 
 - Screen stocks using a relatively sophisticated, fixed set of technical criteria
@@ -34,3 +36,4 @@ This project is intended to serve two purposes:
 ## Status
 
 This project is actively under development and the API, features, and screening logic may change over time.
+
