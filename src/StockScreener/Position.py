@@ -13,12 +13,22 @@ class Transaction:
     reason: str
     date: datetime
 
+    def __post_init__(self):
+        self.shares = Decimal(self.shares)
+        self.fillPrice = Decimal(self.fillPrice)
+
 @dataclass
 class PnL:
     realizedPnL: Decimal
     realizedPnL_percent: Decimal
     unrealizedPnL: Decimal
     unrealizedPnL_percent: Decimal
+
+    def __post_init__(self):
+        self.realizedPnL = Decimal(self.realizedPnL)
+        self.realizedPnL_percent = Decimal(self.realizedPnL_percent)
+        self.unrealizedPnL = Decimal(self.unrealizedPnL)
+        self.unrealizedPnL_percent = Decimal(self.unrealizedPnL_percent)
 
 @dataclass
 class Lot:
@@ -33,13 +43,16 @@ class Lot:
         return self.sharesPurchased - self.sharesRemaining
 
     def __post_init__(self, reason: str):
+        self.sharesPurchased = Decimal(self.sharesPurchased)
+        self.entryPrice = Decimal(self.entryPrice)
+
         self.sharesRemaining = self.sharesPurchased
-        self.costBasis = self.sharesPurchased * self.entryPrice
         self.transactions = [
             Transaction(self.ticker, "buy", self.sharesPurchased, self.entryPrice, reason, self.acquisitionDate)
         ]
 
-        self.proceeds = 0
+        self.proceeds = Decimal(0)
+        self.costBasis = self.sharesPurchased * self.entryPrice
         self._pnl = PnL(0, 0, 0, 0)
 
     def SellShares(self, sharesToSell: Decimal, currentPrice: Decimal, date: datetime):
@@ -53,6 +66,7 @@ class Lot:
         self._pnl.realizedPnL += (sharesToSell * currentPrice) - sharesToSell * self.entryPrice
         self.sharesRemaining -= sharesToSell
         self.proceeds += sharesToSell * currentPrice
+        self.costBasis -= sharesToSell * self.entryPrice
 
         soldCostBasis = self.sharesSold * self.entryPrice
         if soldCostBasis != 0:
@@ -72,7 +86,7 @@ class Lot:
 
 
 class Position:
-    def __init__(self, ticker: str, date: datetime, sharesPurchased: Decimal, costPerShare: Decimal, reason: str):
+    def __init__(self, ticker: str, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Begin a new position with a purchase.
 
         Args:
@@ -85,12 +99,10 @@ class Position:
 
         self.ticker = ticker
 
-        self.transactionHistory = [Transaction(date, ticker, "buy", sharesPurchased, costPerShare, reason)]
-        self.lots = [Lot(date, sharesPurchased, sharesPurchased, costPerShare, costPerShare * sharesPurchased, [self.transactionHistory[-1]])]
-        # self.closedLots = []
+        self.transactionHistory = [Transaction(self.ticker, "buy", sharesPurchased, costPerShare, reason, date)]
+        self.lots = [Lot(self.ticker, sharesPurchased, costPerShare, reason, date)]
 
         self.numberOpenShares = sharesPurchased
-        self.costBasis = costPerShare * sharesPurchased
 
         self._ComputeAverageEntry()
 
@@ -101,9 +113,9 @@ class Position:
         compute the average entry
         """
         if self.numberOpenShares == 0: return 0
-        self.averageEntry = self.costBasis / self.numberOpenShares
+        self.averageEntry = self.GetCostBasis() / self.numberOpenShares
 
-    def Buy(self, date: datetime, sharesPurchased: Decimal, costPerShare: Decimal, reason: str):
+    def Buy(self, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Add to a position by purchasing more of a stock
 
         Args:
@@ -115,22 +127,21 @@ class Position:
 
         if sharesPurchased <= 0:
             raise ValueError(f"Shares purchased be positive, not {sharesPurchased}")
-        if costPerShare <= 0 or isnan(costPerShare):
+        if costPerShare is None or costPerShare <= 0:
             raise ValueError(f"Cost per share should be a valid positive integer, not {costPerShare}")
 
         self.transactionHistory.append(
-            Transaction(date, self.ticker, "buy", sharesPurchased, costPerShare, reason)
+            Transaction(self.ticker, "buy", sharesPurchased, costPerShare, reason, date)
         )
 
         self.lots.append(
-            Lot(date, sharesPurchased, sharesPurchased, costPerShare, costPerShare * sharesPurchased, [self.transactionHistory[-1]])
+            Lot(self.ticker, sharesPurchased, costPerShare, reason, date)
         )
 
         self.numberOpenShares += sharesPurchased
-        self.costBasis += sharesPurchased * costPerShare
         self._ComputeAverageEntry()
 
-    def Sell(self, date: datetime, sharesSold: Decimal, costPerShare: Decimal, reason: str):
+    def Sell(self, sharesSold: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Reduce a position by selling some of a stock
 
         Args:
@@ -145,54 +156,74 @@ class Position:
 
         if sharesSold <= 0:
             raise ValueError(f"Shares purchased be positive, not {sharesSold}")
-        if costPerShare <= 0 or isnan(costPerShare):
+        if costPerShare is None or costPerShare <= 0:
             raise ValueError(f"Cost per share should be a valid positive integer, not {costPerShare}")
         if sharesSold > self.numberOpenShares:
             raise ValueError(f"Cannot sell more shares than are owned: {sharesSold=}, {self.numberOpenShares=}")
         
         self.transactionHistory.append(
-            Transaction(date, self.ticker, "sell", sharesSold, costPerShare, reason)
+            Transaction(self.ticker, "sell", sharesSold, costPerShare, reason, date)
         )
 
         self.numberOpenShares -= sharesSold
-        self.costBasis -= costPerShare * sharesSold
 
+        i = 0
         temp = sharesSold
         while temp > 0:
-            for lot in self.lots:
-                if lot.sharesRemaining > 0:
-                    if temp > lot.sharesRemaining:
-                        temp - lot.sharesRemaining
-                        lot.sharesRemaining = 0
-                        lot.costBasis = 0
-                    else:
-                        lot.sharesRemaining -= temp
-                        lot.costBasis -= sharesSold * costPerShare
-                        temp = 0
+            if self.lots[i].sharesRemaining > 0:
+                if self.lots[i].sharesRemaining > temp:
+                    self.lots[i].SellShares(temp, costPerShare, date)
+                    temp = 0
+                else:
+                    temp -= self.lots[i].sharesRemaining
+                    self.lots[i].SellShares(self.lots[i].sharesRemaining, costPerShare, date)
+            i += 1
 
         return sharesSold * costPerShare
     
-    def ComputePnL(self, costPerShare):
-        for lot in self.lots:
-            lot.pnl.unrealizedPnL = lot.sharesRemaining * costPerShare
+    def ComputePnL(self, costPerShare: Decimal):
+        self.pnl = PnL(0, 0, 0, 0)
 
-        self.pnl.unrealizedPnL = sum(lot.unrealizedPnL for lot in self.lots)
-        self.pnl.unrealizedPnL_percent = self.pnl.unrealizedPnL / self.costBasis
+        soldCostBasis = 0
+        unsoldCostBasis = 0
+
+        for lot in self.lots:
+            lot_pnl = lot.GetPnL(costPerShare)
+            self.pnl.realizedPnL += lot_pnl.realizedPnL
+            self.pnl.unrealizedPnL += lot_pnl.unrealizedPnL
+
+            soldCostBasis += lot.entryPrice * lot.sharesSold
+            unsoldCostBasis += lot.entryPrice * lot.sharesRemaining
+
+        soldProceeds = sum(lot.proceeds for lot in self.lots)
+        unsoldTheoreticalProceeds = sum(lot.sharesRemaining * costPerShare for lot in self.lots)
+
+        if soldCostBasis != 0:
+            self.pnl.realizedPnL_percent = 100 * (soldProceeds - soldCostBasis) / soldCostBasis
+        if unsoldCostBasis != 0:
+            self.pnl.unrealizedPnL_percent = 100 * (unsoldTheoreticalProceeds - unsoldCostBasis) / unsoldCostBasis
 
         return self.pnl
 
-    # def CurrentMarketValue(self, costPerShare):
-    #     """Using the cost per share, compute the current market value of the
-    #     position
+    def CurrentMarketValue(self, costPerShare):
+        """Using the cost per share, compute the current market value of the
+        position
 
-    #     Args:
-    #         costPerShare: the cost for one share
+        Args:
+            costPerShare: the cost for one share
 
-    #     Returns:
-    #         The total market value of the position
-    #     """
+        Returns:
+            The total market value of the position
+        """
 
-    #     return self.numberOpenShares * costPerShare
+        return self.numberOpenShares * costPerShare
+    
+    def GetCostBasis(self):
+        costBasis = 0
+        for lot in self.lots:
+            costBasis += lot.costBasis
+
+        return costBasis
     
     # def SaleProceeds(self):
     #     """Return the amount of money received from selling parts of the position
