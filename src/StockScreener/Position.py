@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, InitVar
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import *
 from enum import Enum
@@ -66,7 +66,7 @@ class Lot:
     def SellShares(self, sharesToSell: Decimal):
         if sharesToSell > self.sharesRemaining:
             raise ValueError(f"Cannot sell more stocks than are allocated in this lot: {sharesToSell=}, {self.sharesRemaining}")
-        if sharesToSell < 0:
+        if sharesToSell <= 0:
             raise ValueError(f"Cannot sell a negative number of shares: {sharesToSell=}")
         
         self.sharesRemaining -= sharesToSell
@@ -112,7 +112,7 @@ class Position:
     
     @property
     def numberOpenShares(self) -> Decimal:
-        return Decimal(sum(lot.sharesRemaining for lot in self.lots))
+        return sum((lot.sharesRemaining for lot in self.lots), Decimal("0"))
     
     @property
     def realizedPnL_percent(self) -> Decimal:
@@ -163,7 +163,7 @@ class Position:
             raise ValueError(f"Shares purchased be positive, not {sharesSold}")
         if costPerShare is None or costPerShare <= 0:
             raise ValueError(f"Cost per share should be a valid positive integer, not {costPerShare}")
-        if sharesSold >= self.numberOpenShares:
+        if sharesSold > self.numberOpenShares:
             raise ValueError(f"Cannot sell more shares than are owned: {sharesSold=}, {self.numberOpenShares=}")
 
         self.transactionHistory.append(
@@ -199,10 +199,18 @@ class Position:
         openCostBasis = sum(lot.sharesRemaining * lot.entryPrice for lot in self.lots)
         unrealizedPnL = self.numberOpenShares * costPerShare - openCostBasis
 
-        if openCostBasis == 0:
-            return unrealizedPnL, Decimal(0)
+        return unrealizedPnL
+    
+    def GetUnrealizedPnL_percent(self, costPerShare: Decimal):
+        costPerShare, = EnsureDecimal(costPerShare)
+        openCostBasis = sum(lot.sharesRemaining * lot.entryPrice for lot in self.lots)
+        unrealizedPnL = self.numberOpenShares * costPerShare - openCostBasis
 
-        return unrealizedPnL, Decimal(100) * unrealizedPnL / openCostBasis
+        if openCostBasis == 0:
+            return Decimal(0)
+
+        return Decimal(100) * unrealizedPnL / openCostBasis
+
     
     def GetPnL(self, costPerShare: Decimal):
         return PnL(self.realizedPnL, self.realizedPnL_percent, *self.GetUnrealizedPnL(costPerShare))

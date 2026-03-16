@@ -1,6 +1,20 @@
+from dataclasses import dataclass
 from .Position import *
 from datetime import datetime
 from decimal import *
+import pandas as pd
+
+@dataclass
+class PositionSummary:
+    ticker: str
+    openShares: Decimal
+    averageEntry: Decimal
+    costBasis: Decimal
+    marketValue: Decimal
+    realizedPnL: Decimal
+    realizedPnL_percent: Decimal
+    unrealizedPnL: Decimal
+    unrealizedPnL_percent: Decimal
 
 class Portfolio:
     def __init__(self, startingCash: Decimal = 1000):
@@ -12,7 +26,9 @@ class Portfolio:
 
         startingCash, = EnsureDecimal(startingCash)
 
-        self.portfolio = {}
+        self.positions = {}
+        self.closedPositions = []
+        self.startingCash = startingCash
         self.cash = startingCash
 
     def Buy(self, ticker: str, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
@@ -31,10 +47,10 @@ class Portfolio:
         if self.cash < sharesPurchased * costPerShare:
             raise ValueError(f"Not enough cash to purchase. {self.cash=} < {(sharesPurchased * costPerShare)=}.")
 
-        if ticker in self.portfolio:
-            self.portfolio[ticker].Buy(sharesPurchased, costPerShare, reason, date)
+        if ticker in self.positions:
+            self.positions[ticker].Buy(sharesPurchased, costPerShare, reason, date)
         else:
-            self.portfolio[ticker] = Position(ticker, sharesPurchased, costPerShare, reason, date)
+            self.positions[ticker] = Position(ticker, sharesPurchased, costPerShare, reason, date)
 
         self.cash -= sharesPurchased * costPerShare
 
@@ -51,13 +67,17 @@ class Portfolio:
         
         sharesSold, costPerShare = EnsureDecimal(sharesSold, costPerShare)
 
-        if ticker not in self.portfolio:
-            raise ValueError(f"{ticker=} is not in the portfolio: {list(self.portfolio.keys())=}")
-        if sharesSold > self.portfolio[ticker].numberOpenShares:
-            raise ValueError(f"{sharesSold=} should not exceed the number of shares available: {self.portfolio[ticker].numberOpenShares=}")
+        if ticker not in self.positions:
+            raise ValueError(f"{ticker=} is not in the portfolio: {list(self.positions.keys())=}")
+        if sharesSold > self.positions[ticker].numberOpenShares:
+            raise ValueError(f"{sharesSold=} should not exceed the number of shares available: {self.positions[ticker].numberOpenShares=}")
         
-        proceeds = self.portfolio[ticker].Sell(sharesSold, costPerShare, reason, date)
+        proceeds = self.positions[ticker].Sell(sharesSold, costPerShare, reason, date)
         self.cash += proceeds
+
+        if self.positions[ticker].numberOpenShares == 0:
+            self.closedPositions[ticker].append(self.positions[ticker])
+            del self.positions[ticker]
 
     def GetPortfolioPnL(self, currentCosts: dict[str, Decimal]):
         realizedPnL = Decimal(0)
@@ -65,12 +85,12 @@ class Portfolio:
         realizedCostBasis = Decimal(0)
         unrealizedCostBasis = Decimal(0)
 
-        for ticker in self.portfolio:
-            realizedPnL += self.portfolio[ticker].realizedPnL
-            unrealizedPnL += self.portfolio[ticker].GetUnrealizedPnL(currentCosts[ticker])[0]
+        for ticker in self.positions:
+            realizedPnL += self.positions[ticker].realizedPnL
+            unrealizedPnL += self.positions[ticker].GetUnrealizedPnL(currentCosts[ticker])
 
-            realizedCostBasis += self.portfolio[ticker].realizedCostBasis
-            unrealizedCostBasis += self.portfolio[ticker].costBasis
+            realizedCostBasis += self.positions[ticker].realizedCostBasis
+            unrealizedCostBasis += self.positions[ticker].costBasis
 
         realizedPnL_percent = Decimal("0")
         if realizedCostBasis != 0:
@@ -81,3 +101,38 @@ class Portfolio:
             unrealizedPnL_percent = Decimal("100") * unrealizedPnL / unrealizedCostBasis
 
         return PnL(realizedPnL, realizedPnL_percent, unrealizedPnL, unrealizedPnL_percent)
+
+    def GetPortfolioMarketCap(self, currentCosts: dict[str, Decimal]):
+        toReturn = Decimal(0)
+        for ticker in self.positions:
+            toReturn += self.positions[ticker].CurrentMarketValue(currentCosts[ticker])
+
+        return toReturn
+
+    def GetEquity(self, currentCosts: dict[str, Decimal]):
+        return self.cash + self.GetPortfolioMarketCap(currentCosts)
+    
+    def GetReturnPercent(self, currentCosts: dict[str, Decimal]):
+        if self.startingCash == 0: return Decimal(0)
+        return Decimal(100) * (self.GetEquity(currentCosts) - self.startingCash) / self.startingCash
+    
+    def SummarizeHoldings(self, currentCosts):
+        summary = []
+
+        for position in self.closedPositions:
+            summary.append(
+                PositionSummary(position.ticker, position.numberOpenShares, position.averageEntry, position.costBasis,
+                                position.CurrentMarketValue(currentCosts[position.ticker]), position.realizedPnL,
+                                position.realizedPnL_percent, position.GetUnrealizedPnL(currentCosts[position.ticker]),
+                                position.GetUnrealizedPnL_percent(currentCosts[position.ticker]))
+            )
+
+        for ticker, position in self.positions.items():
+            summary.append(
+                PositionSummary(ticker, position.numberOpenShares, position.averageEntry, position.costBasis,
+                                position.CurrentMarketValue(currentCosts[ticker]), position.realizedPnL,
+                                position.realizedPnL_percent, position.GetUnrealizedPnL(currentCosts[ticker]),
+                                position.GetUnrealizedPnL_percent(currentCosts[ticker]))
+            )
+
+        return pd.DataFrame(summary)
