@@ -1,17 +1,21 @@
-from .Position import Position
+from .Position import *
+from datetime import datetime
+from decimal import *
 
 class Portfolio:
-    def __init__(self, startingCash: int = 1000):
+    def __init__(self, startingCash: Decimal = 1000):
         """Initialize an empty portfolio
 
         Args:
             startingCash (optional): The amount of money to start with. Defaults to 1000.
         """
 
+        startingCash, = EnsureDecimal(startingCash)
+
         self.portfolio = {}
         self.cash = startingCash
 
-    def Buy(self, ticker: str, date: str, sharesPurchased: float, costPerShare: float, reason: str):
+    def Buy(self, ticker: str, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Purchase a stock
 
         Args:
@@ -21,17 +25,20 @@ class Portfolio:
             costPerShare: The cost per share
             reason: The reason for purchase
         """
+        
+        sharesPurchased, costPerShare = EnsureDecimal(sharesPurchased, costPerShare)
 
+        if self.cash < sharesPurchased * costPerShare:
+            raise ValueError(f"Not enough cash to purchase. {self.cash=} < {(sharesPurchased * costPerShare)=}.")
 
         if ticker in self.portfolio:
-            if date in self.portfolio[ticker].history:
-                raise ValueError("Multiple transactions cannot occur on the same day.")
-            
-            self.portfolio[ticker].Buy(date, sharesPurchased, costPerShare, reason)
+            self.portfolio[ticker].Buy(sharesPurchased, costPerShare, reason, date)
         else:
-            self.portfolio[ticker] = Position(ticker, date, sharesPurchased, costPerShare, reason)
+            self.portfolio[ticker] = Position(ticker, sharesPurchased, costPerShare, reason, date)
 
-    def Sell(self, ticker: str, date: str, sharesSold: float, costPerShare: float, reason: str):
+        self.cash -= sharesPurchased * costPerShare
+
+    def Sell(self, ticker: str, sharesSold: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Sell a stock
 
         Args:
@@ -41,94 +48,36 @@ class Portfolio:
             costPerShare: The cost per share
             reason: The reason for sell
         """
+        
+        sharesSold, costPerShare = EnsureDecimal(sharesSold, costPerShare)
 
         if ticker not in self.portfolio:
             raise ValueError(f"{ticker=} is not in the portfolio: {list(self.portfolio.keys())=}")
-        if sharesSold > self.portfolio[ticker].totalShares:
-            raise ValueError(f"{sharesSold=} should not exceed the number of shares available: {self.portfolio[ticker].totalShares=}")
+        if sharesSold > self.portfolio[ticker].numberOpenShares:
+            raise ValueError(f"{sharesSold=} should not exceed the number of shares available: {self.portfolio[ticker].numberOpenShares=}")
         
-        money = self.portfolio[ticker].Sell(date, sharesSold, costPerShare, reason)
-        self.cash += money
+        proceeds = self.portfolio[ticker].Sell(sharesSold, costPerShare, reason, date)
+        self.cash += proceeds
 
-    def ComputeUnrealizedPnL_ticker(self, currentPrice, history, sharesSold):
-        history = [x for x in history if x[0] > 0]
-
-        i = 0
-        while sharesSold > 0:
-            if sharesSold >= history[i][0]:
-                sharesSold -= history[i][0]
-                history.pop(0)
-            else:
-                history[i] = (history[i][0] - sharesSold, history[i][1])
-                sharesSold = 0
-
-        costBasis = sum(x[0] * x[1] for x in history)
-        unrealizedProfits = sum(x[0] for x in history) * currentPrice
-
-        return unrealizedProfits - costBasis, costBasis
-
-
-    def ComputePnL_Ticker(self, ticker: str, currentPrice: float):
-        history = []
-        for (_, positionChange) in self.portfolio[ticker].history.items():
-                history.append((positionChange.sharesChanged, positionChange.costPerShare))
-
-        sharesSold = -1 * sum(x[0] for x in history if x[0] < 0)
-
-        realizedCostBasis = 0
-
-        i = 0
-        while sharesSold > 0:
-            if history[i][0] < 0:
-                i+=1
-                continue
-
-            if sharesSold >= history[i][0]:
-                realizedCostBasis += history[i][0] * history[i][1]
-                sharesSold -= history[i][0]
-            else:
-                realizedCostBasis += sharesSold * history[i][1]
-                sharesSold -= sharesSold
-
-            i+=1
-
-        sharesSold = -1 * sum(x[0] for x in history if x[0] < 0)
-
-        realizedSaleProceeds = -1 * sum(x[0] * x[1] for x in history if x[0] < 0)
-
-        realizedPnL = realizedSaleProceeds - realizedCostBasis
-        unrealizedPnL, unrealizedCostBasis = self.ComputeUnrealizedPnL_ticker(currentPrice, history, sharesSold)
-
-        realizedPnL_percent = 0
-        if realizedCostBasis != 0:
-            realizedPnL_percent = realizedPnL / realizedCostBasis * 100
-        
-        unrealizedPnL_percent = 0
-        if unrealizedCostBasis != 0:
-            unrealizedPnL_percent = unrealizedPnL / unrealizedCostBasis * 100
-
-
-        return {
-            "Realized PnL": realizedPnL,
-            "Realized PnL (%)": realizedPnL_percent,
-            "Unrealized PnL": unrealizedPnL,
-            "Unrealized PnL (%)": unrealizedPnL_percent,
-            "Position Cost Basis":  unrealizedCostBasis
-        }
-
-    def ComputePnL_Portfolio(self, closeData: dict[str, float]):
-        """Compute PnL for all positions in the portfolio
-
-        Args:
-            closeData: A dictionary of (ticker, price) pairs
-
-        Returns:
-            A dictionary of (ticker, (raw PnL, percentage PnL)) values
-        """
-
-        toReturn = {}
+    def GetPortfolioPnL(self, currentCosts: dict[str, Decimal]):
+        realizedPnL = Decimal(0)
+        unrealizedPnL = Decimal(0)
+        realizedCostBasis = Decimal(0)
+        unrealizedCostBasis = Decimal(0)
 
         for ticker in self.portfolio:
-            toReturn[ticker] = self.ComputePnL_Ticker(ticker, closeData[ticker])
+            realizedPnL += self.portfolio[ticker].realizedPnL
+            unrealizedPnL += self.portfolio[ticker].GetUnrealizedPnL(currentCosts[ticker])[0]
 
-        return toReturn
+            realizedCostBasis += self.portfolio[ticker].realizedCostBasis
+            unrealizedCostBasis += self.portfolio[ticker].costBasis
+
+        realizedPnL_percent = Decimal("0")
+        if realizedCostBasis != 0:
+            realizedPnL_percent = Decimal("100") * realizedPnL / realizedCostBasis
+
+        unrealizedPnL_percent = Decimal("0")
+        if unrealizedCostBasis != 0:
+            unrealizedPnL_percent = Decimal("100") * unrealizedPnL / unrealizedCostBasis
+
+        return PnL(realizedPnL, realizedPnL_percent, unrealizedPnL, unrealizedPnL_percent)

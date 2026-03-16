@@ -1,21 +1,36 @@
 from dataclasses import dataclass, field, InitVar
-from collections import OrderedDict
-from numpy import isnan
 from datetime import datetime
 from decimal import *
+from enum import Enum
+
+class TransactionSide(str, Enum):
+    Buy = "buy"
+    Sell = "sell"
+
+def EnsureDecimal(*args):
+    toReturn = []
+    for arg in args:
+        if not isinstance(arg, Decimal):
+            try:
+                toReturn.append(Decimal(str(arg)))
+            except:
+                raise ValueError(f"Cannot convert type {type(arg)} to Decimal: {arg=}")
+        else:
+            toReturn.append(arg)
+
+    return tuple(toReturn)
 
 @dataclass
 class Transaction:
-    ticker: str
-    side: str # buy or sell
+    side: TransactionSide
     shares: Decimal
     fillPrice: Decimal
     reason: str
     date: datetime
 
     def __post_init__(self):
-        self.shares = Decimal(self.shares)
-        self.fillPrice = Decimal(self.fillPrice)
+        self.shares = Decimal(str(self.shares))
+        self.fillPrice = Decimal(str(self.fillPrice))
 
 @dataclass
 class PnL:
@@ -25,65 +40,36 @@ class PnL:
     unrealizedPnL_percent: Decimal
 
     def __post_init__(self):
-        self.realizedPnL = Decimal(self.realizedPnL)
-        self.realizedPnL_percent = Decimal(self.realizedPnL_percent)
-        self.unrealizedPnL = Decimal(self.unrealizedPnL)
-        self.unrealizedPnL_percent = Decimal(self.unrealizedPnL_percent)
+        self.realizedPnL, self.realizedPnL_percent, self.unrealizedPnL, self.unrealizedPnL_percent = EnsureDecimal(
+            self.realizedPnL, self.realizedPnL_percent, self.unrealizedPnL, self.unrealizedPnL_percent
+        )
 
 @dataclass
 class Lot:
-    ticker: str
     sharesPurchased: Decimal
     entryPrice: Decimal
-    reason: InitVar[str]
     acquisitionDate: datetime
 
     @property
     def sharesSold(self) -> Decimal:
         return self.sharesPurchased - self.sharesRemaining
+    
+    @property
+    def costBasis(self) -> Decimal:
+        return self.sharesRemaining * self.entryPrice
 
-    def __post_init__(self, reason: str):
-        self.sharesPurchased = Decimal(self.sharesPurchased)
-        self.entryPrice = Decimal(self.entryPrice)
+    def __post_init__(self):
+        self.sharesPurchased, self.entryPrice = EnsureDecimal(self.sharesPurchased, self.entryPrice)
 
         self.sharesRemaining = self.sharesPurchased
-        self.transactions = [
-            Transaction(self.ticker, "buy", self.sharesPurchased, self.entryPrice, reason, self.acquisitionDate)
-        ]
 
-        self.proceeds = Decimal(0)
-        self.costBasis = self.sharesPurchased * self.entryPrice
-        self._pnl = PnL(0, 0, 0, 0)
-
-    def SellShares(self, sharesToSell: Decimal, currentPrice: Decimal, date: datetime):
+    def SellShares(self, sharesToSell: Decimal):
         if sharesToSell > self.sharesRemaining:
             raise ValueError(f"Cannot sell more stocks than are allocated in this lot: {sharesToSell=}, {self.sharesRemaining}")
+        if sharesToSell < 0:
+            raise ValueError(f"Cannot sell a negative number of shares: {sharesToSell=}")
         
-        self.transactions.append(
-            Transaction(self.ticker, "sell", sharesToSell, currentPrice, "", date)
-        )
-
-        self._pnl.realizedPnL += (sharesToSell * currentPrice) - sharesToSell * self.entryPrice
         self.sharesRemaining -= sharesToSell
-        self.proceeds += sharesToSell * currentPrice
-        self.costBasis -= sharesToSell * self.entryPrice
-
-        soldCostBasis = self.sharesSold * self.entryPrice
-        if soldCostBasis != 0:
-            self._pnl.realizedPnL_percent = 100 * (self.proceeds - soldCostBasis) / soldCostBasis
-        else:
-            self._pnl.realizedPnL_percent = 0
-
-    def GetPnL(self, currentPrice: Decimal):
-        couldBeSoldCostBasis = self.sharesRemaining * self.entryPrice
-        self._pnl.unrealizedPnL = ((self.sharesRemaining * currentPrice) - (couldBeSoldCostBasis))
-        if couldBeSoldCostBasis != 0:
-            self._pnl.unrealizedPnL_percent = 100 * self._pnl.unrealizedPnL / (self.sharesRemaining * self.entryPrice)
-        else:
-            self._pnl.unrealizedPnL_percent = 0
-
-        return self._pnl
-
 
 class Position:
     def __init__(self, ticker: str, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
@@ -99,22 +85,40 @@ class Position:
 
         self.ticker = ticker
 
-        self.transactionHistory = [Transaction(self.ticker, "buy", sharesPurchased, costPerShare, reason, date)]
-        self.lots = [Lot(self.ticker, sharesPurchased, costPerShare, reason, date)]
+        self.transactionHistory = []
+        self.lots = []
 
-        self.numberOpenShares = sharesPurchased
+        self.realizedPnL = Decimal(0)
+        self.realizedCostBasis = Decimal(0)
 
-        self._ComputeAverageEntry()
+        self.Buy(sharesPurchased, costPerShare, reason, date)
 
-        self.pnl = PnL(0, 0, 0, 0)
-
-    def _ComputeAverageEntry(self):
+    @property
+    def averageEntry(self) -> Decimal:
         """Use the totalCost of shares purchased/sold and the total number of shares held to
         compute the average entry
         """
-        if self.numberOpenShares == 0: return 0
-        self.averageEntry = self.GetCostBasis() / self.numberOpenShares
+        numOpenShares = self.numberOpenShares
+        if numOpenShares == 0: return Decimal(0)
+        return self.costBasis / numOpenShares
+    
+    @property
+    def costBasis(self) -> Decimal:
+        costBasis = Decimal(0)
+        for lot in self.lots:
+            costBasis += lot.costBasis
 
+        return costBasis
+    
+    @property
+    def numberOpenShares(self) -> Decimal:
+        return Decimal(sum(lot.sharesRemaining for lot in self.lots))
+    
+    @property
+    def realizedPnL_percent(self) -> Decimal:
+        if self.realizedCostBasis == 0: return Decimal(0)
+        return Decimal(100) * self.realizedPnL / self.realizedCostBasis
+    
     def Buy(self, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Add to a position by purchasing more of a stock
 
@@ -125,21 +129,20 @@ class Position:
             reason: the reason the position was added to
         """
 
+        sharesPurchased, costPerShare = EnsureDecimal(sharesPurchased, costPerShare)
+
         if sharesPurchased <= 0:
             raise ValueError(f"Shares purchased be positive, not {sharesPurchased}")
         if costPerShare is None or costPerShare <= 0:
             raise ValueError(f"Cost per share should be a valid positive integer, not {costPerShare}")
-
+        
         self.transactionHistory.append(
-            Transaction(self.ticker, "buy", sharesPurchased, costPerShare, reason, date)
+            Transaction(TransactionSide.Buy, sharesPurchased, costPerShare, reason, date)
         )
 
         self.lots.append(
-            Lot(self.ticker, sharesPurchased, costPerShare, reason, date)
+            Lot(sharesPurchased, costPerShare, date)
         )
-
-        self.numberOpenShares += sharesPurchased
-        self._ComputeAverageEntry()
 
     def Sell(self, sharesSold: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Reduce a position by selling some of a stock
@@ -153,59 +156,58 @@ class Position:
         Returns:
             The amount of money received upon selling
         """
+        
+        sharesSold, costPerShare = EnsureDecimal(sharesSold, costPerShare)
 
         if sharesSold <= 0:
             raise ValueError(f"Shares purchased be positive, not {sharesSold}")
         if costPerShare is None or costPerShare <= 0:
             raise ValueError(f"Cost per share should be a valid positive integer, not {costPerShare}")
-        if sharesSold > self.numberOpenShares:
+        if sharesSold >= self.numberOpenShares:
             raise ValueError(f"Cannot sell more shares than are owned: {sharesSold=}, {self.numberOpenShares=}")
-        
-        self.transactionHistory.append(
-            Transaction(self.ticker, "sell", sharesSold, costPerShare, reason, date)
-        )
 
-        self.numberOpenShares -= sharesSold
+        self.transactionHistory.append(
+            Transaction(TransactionSide.Sell, sharesSold, costPerShare, reason, date)
+        )
 
         i = 0
         temp = sharesSold
         while temp > 0:
             if self.lots[i].sharesRemaining > 0:
                 if self.lots[i].sharesRemaining > temp:
-                    self.lots[i].SellShares(temp, costPerShare, date)
+
+                    self.realizedPnL += temp * (costPerShare - self.lots[i].entryPrice)
+                    self.realizedCostBasis += temp * self.lots[i].entryPrice
+
+                    self.lots[i].SellShares(temp)
                     temp = 0
+
                 else:
+
+                    self.realizedPnL += self.lots[i].sharesRemaining * (costPerShare - self.lots[i].entryPrice)
+                    self.realizedCostBasis += self.lots[i].sharesRemaining * self.lots[i].entryPrice
+
                     temp -= self.lots[i].sharesRemaining
-                    self.lots[i].SellShares(self.lots[i].sharesRemaining, costPerShare, date)
+                    self.lots[i].SellShares(self.lots[i].sharesRemaining)
+
             i += 1
 
         return sharesSold * costPerShare
     
-    def ComputePnL(self, costPerShare: Decimal):
-        self.pnl = PnL(0, 0, 0, 0)
+    def GetUnrealizedPnL(self, costPerShare: Decimal):
+        costPerShare, = EnsureDecimal(costPerShare)
+        openCostBasis = sum(lot.sharesRemaining * lot.entryPrice for lot in self.lots)
+        unrealizedPnL = self.numberOpenShares * costPerShare - openCostBasis
 
-        soldCostBasis = 0
-        unsoldCostBasis = 0
+        if openCostBasis == 0:
+            return unrealizedPnL, Decimal(0)
 
-        for lot in self.lots:
-            lot_pnl = lot.GetPnL(costPerShare)
-            self.pnl.realizedPnL += lot_pnl.realizedPnL
-            self.pnl.unrealizedPnL += lot_pnl.unrealizedPnL
+        return unrealizedPnL, Decimal(100) * unrealizedPnL / openCostBasis
+    
+    def GetPnL(self, costPerShare: Decimal):
+        return PnL(self.realizedPnL, self.realizedPnL_percent, *self.GetUnrealizedPnL(costPerShare))
 
-            soldCostBasis += lot.entryPrice * lot.sharesSold
-            unsoldCostBasis += lot.entryPrice * lot.sharesRemaining
-
-        soldProceeds = sum(lot.proceeds for lot in self.lots)
-        unsoldTheoreticalProceeds = sum(lot.sharesRemaining * costPerShare for lot in self.lots)
-
-        if soldCostBasis != 0:
-            self.pnl.realizedPnL_percent = 100 * (soldProceeds - soldCostBasis) / soldCostBasis
-        if unsoldCostBasis != 0:
-            self.pnl.unrealizedPnL_percent = 100 * (unsoldTheoreticalProceeds - unsoldCostBasis) / unsoldCostBasis
-
-        return self.pnl
-
-    def CurrentMarketValue(self, costPerShare):
+    def CurrentMarketValue(self, costPerShare: Decimal):
         """Using the cost per share, compute the current market value of the
         position
 
@@ -216,14 +218,11 @@ class Position:
             The total market value of the position
         """
 
+        costPerShare, = EnsureDecimal(costPerShare)
+
         return self.numberOpenShares * costPerShare
     
-    def GetCostBasis(self):
-        costBasis = 0
-        for lot in self.lots:
-            costBasis += lot.costBasis
-
-        return costBasis
+    
     
     # def SaleProceeds(self):
     #     """Return the amount of money received from selling parts of the position
