@@ -1,24 +1,5 @@
 from dataclasses import dataclass, field
-from enum import Enum
-
-class PlotIndicator(str, Enum):
-    EMA = "ema_200"
-    FIB = "fib"
-    MACD = "macd"
-    VMC = "vmc"
-
-class IndicatorPanel(str, Enum):
-    PRICE = "price"
-    MACD = "macd"
-    VMC = "vmc"
-
-class AxisTickMode(str, Enum):
-    AUTO = "auto"
-    YEAR = "year"
-    QUARTER = "quarter"
-    MONTH = "month"
-    WEEK = "week"
-    DAY = "day"
+from StockScreener.enums import PlotIndicator, IndicatorPanel, AxisTickMode
 
 @dataclass
 class ScreenConfig:

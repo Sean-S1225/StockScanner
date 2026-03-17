@@ -1,24 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import *
-from enum import Enum
 
-class TransactionSide(str, Enum):
-    Buy = "buy"
-    Sell = "sell"
-
-def EnsureDecimal(*args):
-    toReturn = []
-    for arg in args:
-        if not isinstance(arg, Decimal):
-            try:
-                toReturn.append(Decimal(str(arg)))
-            except:
-                raise ValueError(f"Cannot convert type {type(arg)} to Decimal: {arg=}")
-        else:
-            toReturn.append(arg)
-
-    return tuple(toReturn)
+from StockScreener.enums import TransactionSide
+from StockScreener.helpers import EnsureDecimal, EnsureType
 
 @dataclass
 class Transaction:
@@ -29,8 +14,11 @@ class Transaction:
     date: datetime
 
     def __post_init__(self):
-        self.shares = Decimal(str(self.shares))
-        self.fillPrice = Decimal(str(self.fillPrice))
+        # Input validation
+        self.shares, self.fillPrice = EnsureDecimal(self.shares, self.fillPrice)
+        self.side = EnsureType(self.side, TransactionSide)
+        self.reason = EnsureType(self.reason, str)
+        self.date = EnsureType(self.date, datetime)
 
 @dataclass
 class PnL:
@@ -40,6 +28,7 @@ class PnL:
     unrealizedPnL_percent: Decimal
 
     def __post_init__(self):
+        # Input validation
         self.realizedPnL, self.realizedPnL_percent, self.unrealizedPnL, self.unrealizedPnL_percent = EnsureDecimal(
             self.realizedPnL, self.realizedPnL_percent, self.unrealizedPnL, self.unrealizedPnL_percent
         )
@@ -59,15 +48,24 @@ class Lot:
         return self.sharesRemaining * self.entryPrice
 
     def __post_init__(self):
+        self.acquisitionDate = EnsureType(self.acquisitionDate, datetime)
+        if not isinstance(self.acquisitionDate, datetime): 
+            raise TypeError(f"acquisitionDate must be of type datetime, not {type(self.acquisitionDate)}")
+        
         self.sharesPurchased, self.entryPrice = EnsureDecimal(self.sharesPurchased, self.entryPrice)
 
         self.sharesRemaining = self.sharesPurchased
 
     def SellShares(self, sharesToSell: Decimal):
+        if not isinstance(sharesToSell, Decimal):
+            try:
+                sharesToSell = Decimal(sharesToSell)
+            except:
+                raise TypeError(f"sharesToSell must be castable to type Decimal, not of type {type(sharesToSell)}")
         if sharesToSell > self.sharesRemaining:
             raise ValueError(f"Cannot sell more stocks than are allocated in this lot: {sharesToSell=}, {self.sharesRemaining}")
         if sharesToSell <= 0:
-            raise ValueError(f"Cannot sell a negative number of shares: {sharesToSell=}")
+            raise ValueError(f"Cannot sell a non-positive number of shares: {sharesToSell=}")
         
         self.sharesRemaining -= sharesToSell
 

@@ -1,5 +1,12 @@
 README.md
 pyproject.toml
+src/StockScreener/BacktestEngine.py
+src/StockScreener/BrokerSimulator.py
+src/StockScreener/Portfolio.py
+src/StockScreener/Position.py
+src/StockScreener/Screener.py
+src/StockScreener/SignalStore.py
+src/StockScreener/Strategy.py
 src/StockScreener/__init__.py
 src/StockScreener/backtest.py
 src/StockScreener/config.py
