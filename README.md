@@ -1,5 +1,7 @@
 # Stock Scanner
 
+<img width="4846" height="2446" alt="Example" src="https://github.com/user-attachments/assets/0f2f0882-ec27-4b21-b08a-317cb3c5212b" />
+
 A Python-based stock market screening and visualization tool designed for swing trading.
 
 Swing trading, unlike day trading, focuses on identifying stocks that may be near the end of a broader downswing, with the goal of entering positions before a potential rebound. This project began as a sandbox for exploring financial data and technical indicators, and is gradually evolving into a more flexible framework for market screening, chart analysis, and strategy development.
