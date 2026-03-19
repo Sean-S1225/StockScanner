@@ -16,9 +16,9 @@ class Transaction:
     def __post_init__(self):
         # Input validation
         self.shares, self.fillPrice = EnsureDecimal(self.shares, self.fillPrice)
-        self.side = EnsureType(self.side, TransactionSide)
-        self.reason = EnsureType(self.reason, str)
-        self.date = EnsureType(self.date, datetime)
+        self.side = EnsureType(self.side, TransactionSide, "self.side")
+        self.reason = EnsureType(self.reason, str, "self.reason")
+        self.date = EnsureType(self.date, datetime, "self.date")
 
 @dataclass
 class PnL:
@@ -48,7 +48,7 @@ class Lot:
         return self.sharesRemaining * self.entryPrice
 
     def __post_init__(self):
-        self.acquisitionDate = EnsureType(self.acquisitionDate, datetime)
+        self.acquisitionDate = EnsureType(self.acquisitionDate, datetime, "self.acquisitionDate")
         if not isinstance(self.acquisitionDate, datetime): 
             raise TypeError(f"acquisitionDate must be of type datetime, not {type(self.acquisitionDate)}")
         
@@ -57,15 +57,8 @@ class Lot:
         self.sharesRemaining = self.sharesPurchased
 
     def SellShares(self, sharesToSell: Decimal):
-        if not isinstance(sharesToSell, Decimal):
-            try:
-                sharesToSell = Decimal(sharesToSell)
-            except:
-                raise TypeError(f"sharesToSell must be castable to type Decimal, not of type {type(sharesToSell)}")
-        if sharesToSell > self.sharesRemaining:
-            raise ValueError(f"Cannot sell more stocks than are allocated in this lot: {sharesToSell=}, {self.sharesRemaining}")
-        if sharesToSell <= 0:
-            raise ValueError(f"Cannot sell a non-positive number of shares: {sharesToSell=}")
+        sharesToSell = EnsureType(sharesToSell, Decimal, "sharesToSell",
+                                  condition=lambda x: x <= self.sharesRemaining and x > 0)
         
         self.sharesRemaining -= sharesToSell
 
@@ -81,13 +74,14 @@ class Position:
             reason: the reason for beginning the purchase
         """
 
+        ticker = EnsureType(ticker, str, "ticker")
         self.ticker = ticker
 
         self.transactionHistory = []
         self.lots = []
 
-        self.realizedPnL = Decimal(0)
-        self.realizedCostBasis = Decimal(0)
+        self.realizedPnL = Decimal("0")
+        self.realizedCostBasis = Decimal("0")
 
         self.Buy(sharesPurchased, costPerShare, reason, date)
 
@@ -97,12 +91,12 @@ class Position:
         compute the average entry
         """
         numOpenShares = self.numberOpenShares
-        if numOpenShares == 0: return Decimal(0)
+        if numOpenShares == 0: return Decimal("0")
         return self.costBasis / numOpenShares
     
     @property
     def costBasis(self) -> Decimal:
-        costBasis = Decimal(0)
+        costBasis = Decimal("0")
         for lot in self.lots:
             costBasis += lot.costBasis
 
@@ -114,7 +108,7 @@ class Position:
     
     @property
     def realizedPnL_percent(self) -> Decimal:
-        if self.realizedCostBasis == 0: return Decimal(0)
+        if self.realizedCostBasis == 0: return Decimal("0")
         return Decimal(100) * self.realizedPnL / self.realizedCostBasis
     
     def Buy(self, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
@@ -126,13 +120,10 @@ class Position:
             costPerShare: the cost for one share
             reason: the reason the position was added to
         """
-
-        sharesPurchased, costPerShare = EnsureDecimal(sharesPurchased, costPerShare)
-
-        if sharesPurchased <= 0:
-            raise ValueError(f"Shares purchased be positive, not {sharesPurchased}")
-        if costPerShare is None or costPerShare <= 0:
-            raise ValueError(f"Cost per share should be a valid positive integer, not {costPerShare}")
+        sharesPurchased = EnsureType(sharesPurchased, Decimal, "sharesPurchased", condition=lambda x: x > 0)
+        costPerShare = EnsureType(costPerShare, Decimal, "costPerShare", condition=lambda x: x > 0)
+        reason = EnsureType(reason, str, "reason")
+        date = EnsureType(date, datetime, "date")
         
         self.transactionHistory.append(
             Transaction(TransactionSide.Buy, sharesPurchased, costPerShare, reason, date)
@@ -154,15 +145,13 @@ class Position:
         Returns:
             The amount of money received upon selling
         """
+
+        sharesSold = EnsureType(sharesSold, Decimal, "sharesSold", condition=lambda x: x > 0 and x <= self.numberOpenShares)
+        costPerShare = EnsureType(costPerShare, Decimal, "costPerShare", condition=lambda x: x > 0)
+        reason = EnsureType(reason, str, "reason")
+        date = EnsureType(date, datetime, "date")
         
         sharesSold, costPerShare = EnsureDecimal(sharesSold, costPerShare)
-
-        if sharesSold <= 0:
-            raise ValueError(f"Shares purchased be positive, not {sharesSold}")
-        if costPerShare is None or costPerShare <= 0:
-            raise ValueError(f"Cost per share should be a valid positive integer, not {costPerShare}")
-        if sharesSold > self.numberOpenShares:
-            raise ValueError(f"Cannot sell more shares than are owned: {sharesSold=}, {self.numberOpenShares=}")
 
         self.transactionHistory.append(
             Transaction(TransactionSide.Sell, sharesSold, costPerShare, reason, date)
@@ -193,25 +182,25 @@ class Position:
         return sharesSold * costPerShare
     
     def GetUnrealizedPnL(self, costPerShare: Decimal):
-        costPerShare, = EnsureDecimal(costPerShare)
+        costPerShare = EnsureType(costPerShare, Decimal, "costPerShare", condition=lambda x: x > 0)
         openCostBasis = sum(lot.sharesRemaining * lot.entryPrice for lot in self.lots)
         unrealizedPnL = self.numberOpenShares * costPerShare - openCostBasis
 
         return unrealizedPnL
     
     def GetUnrealizedPnL_percent(self, costPerShare: Decimal):
-        costPerShare, = EnsureDecimal(costPerShare)
+        costPerShare = EnsureType(costPerShare, Decimal, "costPerShare", condition=lambda x: x > 0)
         openCostBasis = sum(lot.sharesRemaining * lot.entryPrice for lot in self.lots)
         unrealizedPnL = self.numberOpenShares * costPerShare - openCostBasis
 
         if openCostBasis == 0:
-            return Decimal(0)
+            return Decimal("0")
 
         return Decimal(100) * unrealizedPnL / openCostBasis
 
     
     def GetPnL(self, costPerShare: Decimal):
-        return PnL(self.realizedPnL, self.realizedPnL_percent, *self.GetUnrealizedPnL(costPerShare))
+        return PnL(self.realizedPnL, self.realizedPnL_percent, self.GetUnrealizedPnL(costPerShare), self.GetUnrealizedPnL_percent(costPerShare))
 
     def CurrentMarketValue(self, costPerShare: Decimal):
         """Using the cost per share, compute the current market value of the
@@ -224,17 +213,6 @@ class Position:
             The total market value of the position
         """
 
-        costPerShare, = EnsureDecimal(costPerShare)
+        costPerShare = EnsureType(costPerShare, Decimal, "costPerShare", condition=lambda x: x > 0)
 
         return self.numberOpenShares * costPerShare
-    
-    
-    
-    # def SaleProceeds(self):
-    #     """Return the amount of money received from selling parts of the position
-
-    #     Returns:
-    #         The amount of money received from selling parts of the position
-    #     """
-
-    #     return -1 * sum(hist.dollarValueChange for hist in self.history.values() if hist.dollarValueChange < 0)

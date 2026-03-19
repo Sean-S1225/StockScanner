@@ -4,9 +4,8 @@ from StockScreener.Position import PnL
 
 @pytest.mark.parametrize("pnl_input", [
     (Decimal("10"), Decimal("5"), Decimal("7"), Decimal("14")),
-    (10, 5, 7, 14),
-    (10.1, 10.2, 11.3, 11.4),
-    (-1, -2.2, Decimal("-3"), Decimal("0"))
+    (Decimal("10.1"), Decimal("10.2"), Decimal("11.3"), Decimal("11.4")),
+    (Decimal("-1"), Decimal("-2.2"), Decimal("-3"), Decimal("0"))
 ])
 def test_pnl_initialization(pnl_input):
     pnl = PnL(*pnl_input)
@@ -22,9 +21,9 @@ def test_pnl_initialization(pnl_input):
 
 @pytest.mark.parametrize("pnl_input", [
     (None, Decimal("5"), Decimal("7"), Decimal("14")),
-    (10, None, 7, 14),
-    (10.1, 10.2, None, 11.4),
-    (-1, -2.2, Decimal("-3"), None)
+    (Decimal("10"), None, Decimal("7"), Decimal("14")),
+    (Decimal("10.1"), Decimal("10.2"), None, Decimal("11.4")),
+    (Decimal("-1"), Decimal("-2.2"), Decimal("-3"), None)
 ])
 def test_invalid_pnl_initialization_raises(pnl_input):
     with pytest.raises(ValueError):

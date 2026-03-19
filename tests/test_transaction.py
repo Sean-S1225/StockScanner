@@ -6,7 +6,7 @@ from datetime import datetime
 
 @pytest.mark.parametrize("transaction_input", [
     (TransactionSide.Buy, Decimal("10"), Decimal("5"), "hi", datetime(2026, 1, 1)),
-    (TransactionSide.Sell, 10, 5.5, "hi", datetime(2026, 1, 1))
+    (TransactionSide.Sell, Decimal("10"), Decimal("5.5"), "hi", datetime(2026, 1, 1))
 ])
 def test_transaction_valid_initialization(transaction_input):
     side, shares, fillPrice, reason, date = transaction_input
