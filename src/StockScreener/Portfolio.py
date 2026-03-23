@@ -17,14 +17,14 @@ class PositionSummary:
     unrealizedPnL_percent: Decimal
 
 class Portfolio:
-    def __init__(self, startingCash: Decimal = 1000):
+    def __init__(self, startingCash: Decimal = Decimal("1000")):
         """Initialize an empty portfolio
 
         Args:
             startingCash (optional): The amount of money to start with. Defaults to 1000.
         """
 
-        startingCash, = EnsureDecimal(startingCash)
+        startingCash = EnsureType(startingCash, Decimal, "startingCash", condition=lambda x: x > 0)
 
         self.positions = {}
         self.closedPositions = []
@@ -42,7 +42,11 @@ class Portfolio:
             reason: The reason for purchase
         """
         
-        sharesPurchased, costPerShare = EnsureDecimal(sharesPurchased, costPerShare)
+        ticker = EnsureType(ticker, str, "ticker")
+        sharesPurchased = EnsureType(sharesPurchased, Decimal, "sharesPurchased", condition=lambda x: x > 0)
+        costPerShare = EnsureType(costPerShare, Decimal, "costPerShare", condition=lambda x: x > 0)
+        reason = EnsureType(reason, str, "reason")
+        date = EnsureType(date, datetime, "date")
 
         if self.cash < sharesPurchased * costPerShare:
             raise ValueError(f"Not enough cash to purchase. {self.cash=} < {(sharesPurchased * costPerShare)=}.")
@@ -65,7 +69,11 @@ class Portfolio:
             reason: The reason for sell
         """
         
-        sharesSold, costPerShare = EnsureDecimal(sharesSold, costPerShare)
+        ticker = EnsureType(ticker, str, "ticker")
+        sharesSold = EnsureType(sharesSold, Decimal, "sharesSold", condition=lambda x: x > 0)
+        costPerShare = EnsureType(costPerShare, Decimal, "costPerShare", condition=lambda x: x > 0)
+        reason = EnsureType(reason, str, "reason")
+        date = EnsureType(date, datetime, "date")
 
         if ticker not in self.positions:
             raise ValueError(f"{ticker=} is not in the portfolio: {list(self.positions.keys())=}")
@@ -76,7 +84,7 @@ class Portfolio:
         self.cash += proceeds
 
         if self.positions[ticker].numberOpenShares == 0:
-            self.closedPositions[ticker].append(self.positions[ticker])
+            self.closedPositions.append(self.positions[ticker])
             del self.positions[ticker]
 
     def GetPortfolioPnL(self, currentCosts: dict[str, Decimal]):
@@ -85,7 +93,14 @@ class Portfolio:
         realizedCostBasis = Decimal(0)
         unrealizedCostBasis = Decimal(0)
 
+        for position in self.closedPositions:
+            realizedPnL += position.realizedPnL
+            realizedCostBasis += position.realizedCostBasis
+
         for ticker in self.positions:
+            if ticker not in currentCosts:
+                raise KeyError(f"{ticker=} not found in {list(currentCosts.keys())=}")
+
             realizedPnL += self.positions[ticker].realizedPnL
             unrealizedPnL += self.positions[ticker].GetUnrealizedPnL(currentCosts[ticker])
 
@@ -105,6 +120,9 @@ class Portfolio:
     def GetPortfolioMarketCap(self, currentCosts: dict[str, Decimal]):
         toReturn = Decimal(0)
         for ticker in self.positions:
+            if ticker not in currentCosts:
+                raise KeyError(f"{ticker=} not found in {list(currentCosts.keys())=}")
+            
             toReturn += self.positions[ticker].CurrentMarketValue(currentCosts[ticker])
 
         return toReturn
@@ -122,9 +140,9 @@ class Portfolio:
         for position in self.closedPositions:
             summary.append(
                 PositionSummary(position.ticker, position.numberOpenShares, position.averageEntry, position.costBasis,
-                                position.CurrentMarketValue(currentCosts[position.ticker]), position.realizedPnL,
-                                position.realizedPnL_percent, position.GetUnrealizedPnL(currentCosts[position.ticker]),
-                                position.GetUnrealizedPnL_percent(currentCosts[position.ticker]))
+                                Decimal("0"), position.realizedPnL,
+                                position.realizedPnL_percent, Decimal("0"),
+                                Decimal("0"))
             )
 
         for ticker, position in self.positions.items():

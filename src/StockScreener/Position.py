@@ -111,6 +111,16 @@ class Position:
         if self.realizedCostBasis == 0: return Decimal("0")
         return Decimal(100) * self.realizedPnL / self.realizedCostBasis
     
+    def __eq__(self, other):
+        if not isinstance(other, Position):
+            return NotImplemented
+
+        return (
+            self.ticker == other.ticker and
+            self.transactionHistory == other.transactionHistory and
+            self.lots == other.lots
+        )
+    
     def Buy(self, sharesPurchased: Decimal, costPerShare: Decimal, reason: str, date: datetime):
         """Add to a position by purchasing more of a stock
 

@@ -11,6 +11,8 @@ src/StockScreener/__init__.py
 src/StockScreener/backtest.py
 src/StockScreener/config.py
 src/StockScreener/data.py
+src/StockScreener/enums.py
+src/StockScreener/helpers.py
 src/StockScreener/indicators.py
 src/StockScreener/plotting.py
 src/StockScreener/screening.py
@@ -18,3 +20,9 @@ src/StockScreener.egg-info/PKG-INFO
 src/StockScreener.egg-info/SOURCES.txt
 src/StockScreener.egg-info/dependency_links.txt
 src/StockScreener.egg-info/top_level.txt
+tests/test_helpers.py
+tests/test_lot.py
+tests/test_pnl.py
+tests/test_portfolio.py
+tests/test_position.py
+tests/test_transaction.py
